@@ -1,14 +1,13 @@
 # %%
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from math import exp
 
-import numpy as np
 import pandas as pd
 import plotly.express as px
 
 
 @dataclass(frozen=True)
-class Crop:
+class CropParameters:
     # Species parameters.
     T_base: float
     T_opt: float
@@ -26,10 +25,10 @@ class Crop:
     I_50A: float
     I_50B: float
 
-    def fSolar(self, TT, fSolar_max: float = 0.95):
+    def fSolar(self, TT, I_50A: float, I_50B: float, fSolar_max: float = 0.95):
         return min(
-            fSolar_max / (1 + exp(-0.01 * (TT - self.I_50A))),
-            fSolar_max / (1 + exp(0.01 * (TT - (self.T_sum - self.I_50B)))),
+            fSolar_max / (1 + exp(-0.01 * (TT - I_50A))),
+            fSolar_max / (1 + exp(0.01 * (TT - (self.T_sum - I_50B)))),
         )
 
     def fTemp(self, T_mean):
@@ -59,7 +58,7 @@ class Crop:
         return 1 - self.S_water * ARID
 
 
-wheat_yecora_rojo = Crop(
+wheat_yecora_rojo = CropParameters(
     T_sum=2200,
     HI=0.36,
     I_50A=480,
@@ -75,53 +74,52 @@ wheat_yecora_rojo = Crop(
     S_water=0.04,
 )
 
-crop = wheat_yecora_rojo
 
-# %%
-df = pd.DataFrame([{"T": T, "f(Temp)": crop.fTemp(T)} for T in range(0, 50)]).set_index(
-    "T"
-)
-px.line(df, y="f(Temp)")
-
-# %%
-df = pd.DataFrame(
-    [{"TT": TT, "f(Solar)": crop.fSolar(TT)} for TT in range(0, 2000, 20)]
-).set_index("TT")
-px.line(df, y="f(Solar)")
-
-# %%
-
-df = pd.DataFrame(
-    [{"T": T, "f(Heat)": crop.fHeat(T)} for T in range(26, 46)]
-).set_index("T")
-px.line(df, y="f(Heat)")
-
-# %%
-df = pd.DataFrame(
-    [{"CO2": CO2, "f(CO2)": crop.fCO2(CO2)} for CO2 in range(300, 800, 10)]
-).set_index("CO2")
-px.line(df, y="f(CO2)")
-
-
-# %%
-# FIXME: (9) updates I_50B
-@dataclass(frozen=False)
-class Simulation:
-    crop: Crop
-    day: int = 0
+@dataclass
+class Crop:
+    parameters: CropParameters
+    i: int = 0
     TT: float = 0
-    I_50A: float
-    I_50B: float
+    I_50A: float = float("nan")
+    I_50B: float = float("nan")
+    biomass: float = 0
 
-    def step(self, radiation, *, T_mean, T_max, TT, CO2, ARID):
-        biomass_rate = (
+    def __post_init__(self):
+        self.I_50A = self.parameters.I_50A
+        self.I_50B = self.parameters.I_50B
+
+    def next_day(self, *, radiation, T_mean, T_max, CO2, ARID):
+        # FIXME: TT
+        p = self.parameters
+
+        self.biomass += (
             radiation
-            * self.fSolar(TT, self.I_50a, self.I_50b)
-            * self.RUE
-            * self.fCO2(CO2)
-            * self.fTemp(T_mean)
-            * min(self.fHeat(T_max) * self.fWater(ARID))
+            * p.fSolar(self.TT, self.I_50A, self.I_50B)
+            * p.RUE
+            * p.fCO2(CO2)
+            * p.fTemp(T_mean)
+            * min(p.fHeat(T_max), p.fWater(ARID))
         )
 
+        self.i += 1
+        self.TT += max(0, T_mean - p.T_base)
+        self.I_50B += p.I_50maxH * (1 - p.fHeat(T_max))
+        self.I_50B += p.I_50maxW * (1 - p.fWater(ARID))
 
-simulation = Simulation(wheat_yecora_rojo)
+    def yields(self):
+        return self.biomass * self.parameters.HI
+
+
+# %%
+crop = Crop(wheat_yecora_rojo)
+
+
+def simulate(crop, days=150):
+    for d in range(days):
+        x = {"radiation": 10, "T_mean": 20, "T_max": 27, "CO2": 400, "ARID": 0.2}
+        crop.next_day(**x)
+        yield {"day": crop.i, **x, "biomass": crop.biomass}
+
+
+df = pd.DataFrame([d for d in simulate(crop)]).set_index("day")
+px.line(df, y="biomass")
