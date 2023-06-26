@@ -2,9 +2,6 @@
 from dataclasses import dataclass
 from math import exp
 
-import numpy as np
-import pandas as pd
-import plotly.express as px
 
 
 @dataclass(frozen=True)
@@ -99,58 +96,5 @@ class Crop:
     def yields(self):
         return self.biomass * self.parameters.HI
 
-
-# %%
-wheat_yecora_rojo = CropParameters(
-    T_sum=2200,
-    HI=0.36,
-    I_50A=480,
-    I_50B=200,
-    T_base=0,
-    T_opt=15,
-    RUE=1.24,
-    I_50maxH=100,
-    I_50maxW=25,
-    T_heat=34,
-    T_ext=45,
-    S_CO2=0.08,
-    S_water=0.04,
-)
-
-tomato_sunnySD = CropParameters(
-    T_sum=2800,
-    HI=0.68,
-    I_50A=520,
-    I_50B=400,
-    T_base=6,
-    T_opt=26,
-    RUE=1.00,
-    I_50maxH=100,
-    I_50maxW=5,
-    T_heat=32,
-    T_ext=45,
-    S_CO2=0.07,
-    S_water=2.5,
-)
-
-crop = Crop(tomato_sunnySD)
-
-
-def simulate(crop, days=365):
-    for _ in range(days):
-        # TODO: add some randomness.
-        x = {
-            "radiation": np.random.randint(0, 10),
-            "T_mean": np.random.randint(5, 20),
-            "CO2": np.random.randint(400, 500),
-            "ARID": np.random.uniform(0, 1) ** 3,
-        }
-        x["T_max"] = x["T_mean"] + np.random.randint(0, 10)
-        crop.next_day(**x)
-        yield {"day": crop.i, **x, "biomass": crop.biomass}
-
-
-df = pd.DataFrame([d for d in simulate(crop)]).set_index("day")
-px.line(df, y="biomass")
 
 # %%
